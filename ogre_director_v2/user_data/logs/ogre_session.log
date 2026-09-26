@@ -1,0 +1,168 @@
+[14:55:20] intro DONE - starting music
+[14:55:20] opening choice context=intense
+[14:59:20] intro DONE - starting music
+[14:59:20] opening choice context=bratty
+[15:00:35] opening choice DONE - entering calibration
+[15:00:35] entering main loop cycle_cap=2
+[15:00:35] _run_intimacy mode=gentle
+[15:02:06] intro DONE - starting music
+[15:02:06] opening choice context=tender
+[15:03:21] opening choice DONE - entering calibration
+[15:13:11] run() START
+[15:13:45] intro DONE - starting music
+[15:13:45] opening choice context=gentle_start
+[15:15:00] opening choice DONE - entering calibration
+[15:17:15] intro DONE - starting music
+[15:17:15] opening choice context=intense
+[15:18:44] intro DONE - starting music
+[15:18:44] opening choice context=bratty
+[15:20:09] intro DONE - starting music
+[15:20:09] opening choice context=teasing
+[15:21:33] run() START
+[15:22:07] intro DONE - starting music
+[15:22:07] opening choice context=gentle_start
+[15:23:22] opening choice DONE - entering calibration
+[15:23:22] entering main loop cycle_cap=2
+[15:23:22] _run_intimacy mode=gentle
+[15:24:11] intro DONE - starting music
+[15:24:11] opening choice context=intense
+[15:24:50] opening choice DONE - entering calibration
+[15:25:28] entering main loop cycle_cap=2
+[15:25:28] _run_intimacy mode=gentle
+[15:30:25] intro DONE - starting music
+[15:30:25] opening choice context=teasing
+[15:31:03] opening choice DONE - entering calibration
+[15:32:29] entering main loop cycle_cap=2
+[15:32:29] _run_intimacy mode=gentle
+[15:36:55] run() START
+[15:37:28] intro DONE - starting music
+[15:37:28] opening choice context=gentle_start
+[15:38:08] opening choice DONE - entering calibration
+[15:45:25] entering main loop cycle_cap=2
+[15:49:25] _run_intimacy mode=gentle
+[15:56:24] run() START
+[15:56:58] intro DONE - starting music
+[15:56:58] opening choice context=gentle_start
+[15:58:13] opening choice DONE - entering calibration
+[16:02:04] entering main loop cycle_cap=2
+[16:03:03] _run_intimacy mode=gentle
+[16:11:17] intro DONE - starting music
+[16:11:17] opening choice context=teasing
+[16:12:32] opening choice DONE - entering calibration
+[16:12:32] entering main loop cycle_cap=2
+[16:12:32] _run_intimacy mode=gentle
+[16:24:59] intro DONE - starting music
+[16:24:59] opening choice context=tender
+[17:06:25] intro DONE - starting music
+[17:06:25] opening choice context=building
+[17:08:54] intro DONE - starting music
+[17:08:54] opening choice context=tender
+[17:10:09] opening choice DONE - entering calibration
+[17:19:25] entering main loop cycle_cap=2
+[17:21:13] _run_intimacy mode=gentle
+[17:29:48] intro DONE - starting music
+[17:29:48] opening choice context=bratty
+[17:31:03] opening choice DONE - entering calibration
+[17:36:56] entering main loop cycle_cap=2
+[17:36:56] _run_intimacy mode=gentle
+[20:12:49] intro DONE - starting music
+[20:12:49] opening choice context=bratty
+[20:13:04] opening choice DONE - entering calibration
+[20:13:40] entering main loop cycle_cap=2
+[20:13:52] _run_intimacy mode=gentle
+[20:17:48] intro DONE - starting music
+[20:17:48] opening choice context=intense
+[20:18:03] opening choice DONE - entering calibration
+[20:18:42] entering main loop cycle_cap=2
+[20:18:42] _run_intimacy mode=gentle
+[20:26:22] intro DONE - starting music
+[20:26:22] opening choice context=intense
+[20:26:37] opening choice DONE - entering calibration
+[20:27:09] entering main loop cycle_cap=2
+[20:27:09] _run_intimacy mode=gentle
+[00:38:21] intro DONE - starting music
+[00:38:21] opening choice context=gentle_start
+[00:38:21] opening choice DONE - entering calibration
+[00:38:21] entering main loop cycle_cap=2
+[00:38:21] _run_intimacy mode=gentle
+[00:38:24] _finalize_session after QUIT
+[00:50:10] intro DONE - starting music
+[00:50:10] opening choice context=gentle_start
+[00:50:10] opening choice DONE - entering calibration
+[00:50:10] entering main loop cycle_cap=2
+[00:50:10] _run_intimacy mode=gentle
+[00:50:53] intro DONE - starting music
+[00:50:53] opening choice context=gentle_start
+[00:50:53] opening choice DONE - entering calibration
+[00:50:53] entering main loop cycle_cap=2
+[00:50:53] _run_intimacy mode=gentle
+[00:51:38] intro DONE - starting music
+[00:51:38] opening choice context=gentle_start
+[00:51:38] opening choice DONE - entering calibration
+[00:51:38] entering main loop cycle_cap=2
+[00:51:38] _run_intimacy mode=gentle
+[01:04:19] intro DONE - starting music
+[01:04:19] opening choice context=gentle_start
+[01:04:19] opening choice DONE - entering calibration
+[01:04:19] entering main loop cycle_cap=2
+[01:04:19] _run_intimacy mode=gentle
+[01:08:30] intro DONE - starting music
+[01:08:30] opening choice context=gentle_start
+[01:08:30] opening choice DONE - entering calibration
+[01:08:30] entering main loop cycle_cap=2
+[01:08:30] _run_intimacy mode=gentle
+[01:10:06] intro DONE - starting music
+[01:10:06] opening choice context=gentle_start
+[01:10:06] opening choice DONE - entering calibration
+[01:10:06] entering main loop cycle_cap=2
+[01:10:06] _run_intimacy mode=gentle
+[09:18:43] intro DONE - starting music
+[09:18:43] opening choice context=tender
+[09:18:58] opening choice DONE - entering calibration
+[09:18:59] entering main loop cycle_cap=2
+[09:18:59] _run_intimacy mode=gentle
+[10:05:53] intro DONE - starting music
+[10:05:53] opening choice context=gentle_start
+[10:05:53] opening choice DONE - entering calibration
+[10:05:53] entering main loop cycle_cap=2
+[10:05:53] _run_intimacy mode=gentle
+[10:13:05] intro DONE - starting music
+[10:13:05] opening choice context=gentle_start
+[10:13:05] opening choice DONE - entering calibration
+[10:13:05] entering main loop cycle_cap=2
+[10:13:05] _run_intimacy mode=gentle
+[10:14:53] intro DONE - starting music
+[10:14:53] opening choice context=gentle_start
+[10:14:53] opening choice DONE - entering calibration
+[10:14:53] entering main loop cycle_cap=2
+[10:14:53] _run_intimacy mode=gentle
+[10:15:33] intro DONE - starting music
+[10:15:33] opening choice context=gentle_start
+[10:15:33] opening choice DONE - entering calibration
+[10:15:33] entering main loop cycle_cap=2
+[10:15:33] _run_intimacy mode=gentle
+[10:16:03] intro DONE - starting music
+[10:16:03] opening choice context=gentle_start
+[10:16:03] opening choice DONE - entering calibration
+[10:16:03] entering main loop cycle_cap=2
+[10:16:03] _run_intimacy mode=gentle
+[10:17:18] intro DONE - starting music
+[10:17:18] opening choice context=gentle_start
+[10:17:18] opening choice DONE - entering calibration
+[10:17:18] entering main loop cycle_cap=2
+[10:17:18] _run_intimacy mode=gentle
+[10:19:19] intro DONE - starting music
+[10:19:19] opening choice context=gentle_start
+[10:19:19] opening choice DONE - entering calibration
+[10:19:19] entering main loop cycle_cap=2
+[10:19:19] _run_intimacy mode=gentle
+[10:25:34] intro DONE - starting music
+[10:25:34] opening choice context=gentle_start
+[10:25:34] opening choice DONE - entering calibration
+[10:25:34] entering main loop cycle_cap=2
+[10:25:34] _run_intimacy mode=gentle
+[10:29:37] intro DONE - starting music
+[10:29:37] opening choice context=gentle_start
+[10:29:37] opening choice DONE - entering calibration
+[10:29:37] entering main loop cycle_cap=2
+[10:29:37] _run_intimacy mode=gentle

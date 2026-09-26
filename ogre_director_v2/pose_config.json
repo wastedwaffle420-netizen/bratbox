@@ -1,0 +1,42 @@
+{
+  "angled_collapse_low_quality": [
+    64,
+    31
+  ],
+  "coy_cheek": [
+    29,
+    48
+  ],
+  "downward": [
+    50,
+    31
+  ],
+  "face": [
+    72,
+    49
+  ],
+  "front_presence": [
+    59,
+    45
+  ],
+  "laying_smile": [
+    66,
+    50
+  ],
+  "outhouse": [
+    40,
+    50
+  ],
+  "squat": [
+    61,
+    28
+  ],
+  "stand_backfacing": [
+    61,
+    44
+  ],
+  "strut": [
+    69,
+    55
+  ]
+}

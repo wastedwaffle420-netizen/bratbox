@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bratbox — ogre shader v5</title>
+<link rel="stylesheet" href="vendor/xterm.css">
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#0b0710; overflow:hidden; }
+  #wrap { position:fixed; inset:0 0 26px 0; }
+  #term { height:100%; padding:8px; box-sizing:border-box; }
+  #bar {
+    position:fixed; left:0; right:0; bottom:0; height:26px;
+    background:#140d1a; color:#b9a3c9; font:12px/26px monospace;
+    padding:0 12px; display:flex; gap:18px; align-items:center;
+    border-top:1px solid #2c1f38; white-space:nowrap; overflow:hidden;
+  }
+  #voice { color:#ff9ecf; display:none; }
+  #voice.on { display:inline; animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity:.35; } }
+  #enable {
+    position:fixed; inset:0; background:rgba(11,7,16,.92); z-index:10;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  #enable div {
+    color:#e8c8e0; font:16px monospace; border:1px solid #5b3a68;
+    padding:18px 34px; border-radius:10px; background:#1a1022; text-align:center;
+  }
+  #enable small { color:#8d7499; display:block; margin-top:8px; font-size:12px; }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="term"></div></div>
+<div id="bar">
+  <span id="conn">connecting…</span>
+  <span id="voice">♪ jasmine speaking…</span>
+  <span id="stats"></span>
+  <span id="vsense" style="cursor:pointer;color:#8d7499" title="optional: let her hear how close you are">◌ voice sense: off</span>
+</div>
+<div id="enable"><div>enter the shader<small>click to enable sound — her voice needs one tap</small></div></div>
+<script src="vendor/xterm.min.js"></script>
+<script src="vendor/xterm-addon-fit.min.js"></script>
+<script>
+(function(){
+  // If the terminal library didn't load, say so instead of leaving a dead button.
+  if (typeof Terminal === "undefined" || typeof FitAddon === "undefined") {
+    document.querySelector("#enable div").innerHTML =
+      "the shader didn't load<small>refresh the page — if it keeps happening, tell him</small>";
+    return;
+  }
+  const qs = new URLSearchParams(location.search);
+  const token = qs.get("token") || "";
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const wsUrl = proto + "//" + location.host + "/term?token=" + encodeURIComponent(token);
+
+  const term = new Terminal({
+    cursorBlink: true, fontSize: 14, fontFamily: '"DejaVu Sans Mono", Menlo, Consolas, monospace',
+    theme: { background:"#0b0710", foreground:"#e6d5ee", cursor:"#ff9ecf",
+             black:"#0b0710", red:"#ff6b9d", green:"#9fe8b6", yellow:"#ffd98e",
+             blue:"#8ecbff", magenta:"#e08eff", cyan:"#8effe3", white:"#e6d5ee" }
+  });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(document.getElementById("term"));
+  fit.fit();
+  term.focus();
+
+  let ws = null, alive = false;
+  function connect(){
+    ws = new WebSocket(wsUrl);
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => { alive = true; setConn("live"); sendResize(); };
+    ws.onclose = () => { alive = false; setConn("reconnecting…"); setTimeout(connect, 1500); };
+    ws.onerror = () => { try{ws.close();}catch(e){} };
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === "string") term.write(ev.data);
+      else term.write(new Uint8Array(ev.data));
+    };
+  }
+  term.onData(d => { if (alive) ws.send(new TextEncoder().encode(d)); });
+  function sendResize(){
+    if (!alive) return;
+    ws.send(JSON.stringify({type:"resize", cols: term.cols, rows: term.rows}));
+  }
+  let rzT = null;
+  window.addEventListener("resize", () => { fit.fit(); clearTimeout(rzT); rzT = setTimeout(sendResize, 200); });
+  function setConn(s){ document.getElementById("conn").textContent = s; }
+  connect();
+
+  // ---- her voice (+ his) ----
+  // v9.1: rapid-fire, 5-10% overlap — the next line steps on the previous
+  // one's tail, never impossible vocal tricks. When her new line starts,
+  // her old line ducks out fast (she cuts herself off — human, eager).
+  // His interjections ride over at 0.85 without ducking her. SFX untouched.
+  let soundOn = false, lastClip = -1;
+  const queue = [];
+  const MAX_VOICES = 2;
+  let activeVoices = 0;
+  const liveVoices = []; // {audio, speaker, kind}
+  const voiceEl = document.getElementById("voice");
+  document.getElementById("enable").addEventListener("click", () => {
+    document.getElementById("enable").style.display = "none";
+    soundOn = true; term.focus();
+  });
+  function duckOlder(speaker){
+    // fade same-speaker older lines out over ~120ms, then stop them
+    liveVoices.forEach(v => {
+      if (v.kind === "sfx" || v.speaker !== speaker) return;
+      const a = v.audio;
+      if (a.ended || a.paused) return;
+      const step = Math.max(0.05, a.volume / 4);
+      const iv = setInterval(() => {
+        a.volume = Math.max(0, a.volume - step);
+        if (a.volume <= 0) { clearInterval(iv); try { a.pause(); } catch(e){} }
+      }, 30);
+    });
+  }
+  function pollClips(){
+    fetch("/api/clips?since=" + lastClip + "&token=" + encodeURIComponent(token))
+      .then(r => r.json()).then(j => {
+        (j.clips || []).forEach(c => {
+          lastClip = Math.max(lastClip, c.idx);
+          queue.push(c);
+        });
+        pump();
+      }).catch(()=>{});
+  }
+  function startClip(c, onEnd){
+    const speaker = c.speaker || "jasmine";
+    const kind = c.kind || "voice";
+    if (kind !== "sfx") duckOlder(speaker);
+    activeVoices++; voiceEl.classList.add("on");
+    const a = new Audio("/clips/" + encodeURIComponent(c.clip) + "?token=" + encodeURIComponent(token));
+    // her voice stays forward; his sits a touch lower so they layer clean.
+    if (speaker === "fiend") a.volume = 0.85;
+    const entry = {audio: a, speaker: speaker, kind: kind};
+    liveVoices.push(entry);
+    const done = () => {
+      const i = liveVoices.indexOf(entry);
+      if (i >= 0) liveVoices.splice(i, 1);
+      activeVoices = Math.max(0, activeVoices - 1);
+      if (!activeVoices) voiceEl.classList.remove("on");
+    };
+    a.onended = a.onerror = () => { done(); if (onEnd) onEnd(); else setTimeout(pump, 120); };
+    a.play().catch(() => { done(); if (onEnd) onEnd(); else setTimeout(pump, 800); });
+    return entry;
+  }
+  // One exchange (one seq): her line, then his reply, stepping over each
+  // other's thoughts — he starts as her line lands, not on top of it.
+  // (v10.4.1: the old pump started both at once — full overlap, all night.)
+  function playChain(items){
+    if (!items.length) { setTimeout(pump, 120); return; }
+    let handed = false;
+    const next = () => {
+      if (handed) return; handed = true;
+      playChain(items.slice(1));
+    };
+    const entry = startClip(items[0], next);
+    if (items.length < 2) return;
+    const a = entry.audio;
+    const tick = () => {
+      try {
+        if (a.duration && isFinite(a.duration) && a.currentTime >= a.duration - 0.45) {
+          a.removeEventListener("timeupdate", tick);
+          next();
+        }
+      } catch(e){}
+    };
+    a.addEventListener("timeupdate", tick);
+  }
+  function pump(){
+    if (!queue.length) return;
+    if (!soundOn) { setTimeout(pump, 800); return; }
+    // backlog cap: if sound was enabled late (or the writer ran ahead),
+    // stale exchanges are dropped instead of playing minutes of catch-up
+    // as overlapping chaos. ~10 exchanges ≈ a minute of audio.
+    let groups = 0, cut = 0;
+    for (const c of queue) { if ((c.kind || "voice") !== "sfx") groups++; }
+    while (groups > 12 && queue.length) {
+      const c = queue.shift();
+      if ((c.kind || "voice") !== "sfx") { groups--; cut++; }
+    }
+    if (cut) console.log("[voice] dropped " + cut + " stale clips");
+    // sfx layers freely and never blocks the voices
+    while (queue.length && (queue[0].kind || "voice") === "sfx" && activeVoices < MAX_VOICES) {
+      startClip(queue.shift());
+    }
+    if (!queue.length || activeVoices > 0) return;
+    // group one exchange: consecutive voice entries sharing a seq
+    const seq = queue[0].seq;
+    const group = [];
+    while (queue.length && queue[0].seq === seq && (queue[0].kind || "voice") !== "sfx") {
+      group.push(queue.shift());
+    }
+    if (group.length) playChain(group);
+    else setTimeout(pump, 120);
+  }
+  setInterval(pollClips, 1500); pollClips();
+
+  // ---- gameplay SFX (v10.8): note hits/misses + squishes ----
+  // The old hit/miss sounds played through server-side pygame synth —
+  // inaudible in the browser. The game now appends tiny events to
+  // <session>/sfx.jsonl; this polls /api/sfx at ~120ms (far too
+  // timing-sensitive for the 1.5s voice pump) and plays them immediately.
+  let clickCtx = null, lastSfx = -1, squishVoices = 0;
+  function ensureClickCtx(){
+    if (!clickCtx) {
+      try { clickCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){}
+    }
+    if (clickCtx && clickCtx.state === "suspended") clickCtx.resume().catch(()=>{});
+    return clickCtx;
+  }
+  function playTick(perfect){
+    // little bright tick; perfects sit a touch higher
+    const ctx = ensureClickCtx();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = "triangle";
+    o.frequency.value = perfect ? 1900 : 1500;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.22, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(t); o.stop(t + 0.06);
+  }
+  function playThud(){
+    // soft low thud for misses — felt, not harsh
+    const ctx = ensureClickCtx();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(170, t);
+    o.frequency.exponentialRampToValueAtTime(90, t + 0.09);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.28, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(t); o.stop(t + 0.12);
+  }
+  function playSquish(clip){
+    // gooey takes are ~2s; cap overlap so a barrage stays rhythmic, not mud
+    if (squishVoices >= 2) return;
+    squishVoices++;
+    const a = new Audio("/clips/" + encodeURIComponent(clip) + "?token=" + encodeURIComponent(token));
+    a.volume = 0.6;
+    const done = () => { squishVoices = Math.max(0, squishVoices - 1); };
+    a.onended = a.onerror = done;
+    a.play().catch(done);
+  }
+  function pollSfx(){
+    fetch("/api/sfx?since=" + lastSfx + "&token=" + encodeURIComponent(token))
+      .then(r => r.json()).then(j => {
+        (j.sfx || []).forEach(e => {
+          lastSfx = Math.max(lastSfx, e.idx || 0);
+          if (!soundOn) return;
+          if (e.kind === "hit") playTick(e.q === "perfect");
+          else if (e.kind === "miss") playThud();
+          else if (e.kind === "squish" && e.clip) playSquish(e.clip);
+        });
+      }).catch(()=>{});
+  }
+  setInterval(pollSfx, 120); pollSfx();
+
+  // ---- status ----
+  function pollStatus(){
+    fetch("/api/status?token=" + encodeURIComponent(token))
+      .then(r => r.json()).then(j => {
+        const d = j.director || {};
+        document.getElementById("stats").textContent =
+          "beats " + (d.beats||0) + " · her lines " + (d.replied||0) +
+          " · missed " + (d.timeouts||0) + (j.game_alive ? "" : " · GAME DOWN");
+      }).catch(()=>{});
+  }
+  setInterval(pollStatus, 5000); pollStatus();
+
+  // ---- voice sense (optional) ----
+  // He opts in: the browser listens for VOCALIZATIONS — squeaks, gasps, moans —
+  // and posts two numbers twice a second: broadband loudness + a vocal score.
+  // Only numbers ever leave the browser. No audio is recorded or sent, and no
+  // transcription exists anywhere: she can tell he made a sound, never what
+  // he said. His words are his. Off by default.
+  let vsOn = false, vsStream = null, vsAnalyser = null, vsData = null, vsTimer = null;
+  let vsNoiseFloor = 0, vsFreq = null, vsCtx = null;
+  const vsEl = document.getElementById("vsense");
+  vsEl.title = "optional: she can hear your squeaks — loudness only, never words";
+  vsEl.addEventListener("click", async () => {
+    if (vsOn) { stopVsense(); return; }
+    try {
+      vsStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      vsCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = vsCtx.createMediaStreamSource(vsStream);
+      vsAnalyser = vsCtx.createAnalyser();
+      vsAnalyser.fftSize = 2048;
+      src.connect(vsAnalyser);
+      vsData = new Float32Array(vsAnalyser.fftSize);
+      vsFreq = new Float32Array(vsAnalyser.frequencyBinCount);
+      vsNoiseFloor = 0;
+      vsOn = true;
+      vsEl.textContent = "● voice sense: on";
+      vsEl.style.color = "#ff9ecf";
+      vsTimer = setInterval(() => {
+        if (!vsOn || !vsAnalyser) return;
+        // Squeak detection: vocalizations are TONAL (peaked spectrum) while
+        // background noise is flat. Score = how tonal + how far above the
+        // slowly-adapting noise floor the voice band (150–4200 Hz) sits.
+        vsAnalyser.getFloatFrequencyData(vsFreq);
+        const binHz = vsCtx.sampleRate / vsAnalyser.fftSize;
+        const lo = Math.max(1, Math.floor(150 / binHz));
+        const hi = Math.min(vsFreq.length - 1, Math.ceil(4200 / binHz));
+        let sum = 0, peak = 0, n = 0;
+        for (let i = lo; i <= hi; i++) {
+          const amp = Math.pow(10, Math.max(-100, vsFreq[i]) / 20);
+          const pw = amp * amp;
+          sum += pw; n++;
+          if (pw > peak) peak = pw;
+        }
+        const mean = sum / Math.max(1, n);
+        const bandRms = Math.sqrt(mean);
+        const pmr = mean > 1e-12 ? peak / mean : 0;   // peak-to-mean ratio
+        const tonal = Math.min(1, Math.max(0, Math.log10(1 + pmr) / 2.6));
+        // adaptive noise floor: learns the room when nothing tonal is happening
+        vsNoiseFloor += (bandRms - vsNoiseFloor) * (tonal < 0.3 ? 0.08 : 0.004);
+        const above = Math.max(0, bandRms - vsNoiseFloor * 1.6);
+        const vocal = Math.min(1, above * 10 * (0.25 + 0.75 * tonal));
+        // broadband loudness (kept for compatibility)
+        vsAnalyser.getFloatTimeDomainData(vsData);
+        let tsum = 0;
+        for (let i = 0; i < vsData.length; i++) tsum += vsData[i] * vsData[i];
+        const energy = Math.min(1, Math.sqrt(tsum / vsData.length) * 3);
+        fetch("/api/voice_energy?token=" + encodeURIComponent(token), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            energy: Math.round(energy * 1000) / 1000,
+            vocal: Math.round(vocal * 1000) / 1000
+          })
+        }).catch(()=>{});
+      }, 500);
+    } catch (e) {
+      vsEl.textContent = "◌ voice sense: mic blocked";
+    }
+  });
+  function stopVsense(){
+    vsOn = false;
+    clearInterval(vsTimer);
+    if (vsStream) vsStream.getTracks().forEach(t => t.stop());
+    vsStream = vsAnalyser = vsData = vsFreq = vsCtx = null;
+    vsEl.textContent = "◌ voice sense: off";
+    vsEl.style.color = "#8d7499";
+  }
+})();
+</script>
+</body>
+</html>

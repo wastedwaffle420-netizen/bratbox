@@ -1,0 +1,163 @@
+--- a/ogre_shader_v5.py	2026-09-24 14:32:50.000000000 -0400
++++ b/ogre_shader_v5.py	2026-09-24 14:47:46.804178977 -0400
+@@ -27377,9 +27377,30 @@
+     def _set_exchange(self, exchange: tuple, duration_mult: float = 1.0,
+                       always_inner: bool = False, inner_chance: float = 0.35,
+                       intensity: float = 0.5):
++        """JASMINE_DIRECTOR: her reaction lines (hit/miss/streak/etc.) are offered to the
++        director; the whole exchange is held (<= wait budget) and shown on reply/timeout."""
++        eng = getattr(self, "_jd_engine", None)
++        try:
++            _b = exchange[1]
++        except Exception:
++            _b = None
++        if eng is not None and _jd_get_link is not None and _b and isinstance(_b, str):
++            from types import SimpleNamespace as _NS
++            def _show(_sp, _tx, _ttl, _dir, _ex=exchange):
++                if _dir:
++                    _ex = (_ex[0], _tx, _ex[2])
++                self._set_exchange_impl(_ex, duration_mult, always_inner, inner_chance, intensity, verbatim=_dir)
++            _jd_get_link().route_line(eng, _NS(speaker="BIRDSONG", text=_b, ttl=2.0 * float(duration_mult)), _show, time)
++            return
++        return self._set_exchange_impl(exchange, duration_mult, always_inner, inner_chance, intensity)
++
++    def _set_exchange_impl(self, exchange: tuple, duration_mult: float = 1.0,
++                      always_inner: bool = False, inner_chance: float = 0.35,
++                      intensity: float = 0.5, verbatim: bool = False):
+         """Set the current exchange lines - LEAKS INTEGRATED NATURALLY"""
+         fiend, bird, inner = exchange
+-        bird = self._maybe_prefix_trigger_interjection(bird)
++        if not verbatim:
++            bird = self._maybe_prefix_trigger_interjection(bird)
+ 
+         # Set Fiend line directly
+         self.fiend_line = fiend
+@@ -27390,7 +27411,7 @@
+         normalized_intensity = intensity / 100.0 if intensity > 1.0 else intensity
+ 
+         # Process Birdsong line through unified dialogue system for leakage
+-        if self.dialogue_engine and bird:
++        if self.dialogue_engine and bird and not verbatim:
+             processed = self.dialogue_engine.process_line("BIRDSONG", bird, normalized_intensity)
+ 
+             # Collect leaks
+@@ -27465,7 +27486,22 @@
+             self._record_to_cascade("BIRDSONG", self.bird_line)
+ 
+     def queue_line(self, speaker: str, text: str, duration: float = 2.0):
+-        """Queue a single line from dynamic dialogue systems - LEAKS INTEGRATED"""
++        """JASMINE_DIRECTOR choke point: every authored BIRDSONG line (dialogue_director
++        releases, choice responses, interjections, scripted exchanges) lands here and is
++        offered to the director before it is shown. Off/absent/timeout => unchanged."""
++        eng = getattr(self, "_jd_engine", None)
++        if eng is not None and _jd_get_link is not None and str(speaker).upper() == "BIRDSONG":
++            from types import SimpleNamespace as _NS
++            _jd_get_link().route_line(
++                eng, _NS(speaker=speaker, text=text, ttl=float(duration)),
++                lambda _sp, _tx, _ttl, _dir: self._queue_line_impl(_sp, _tx, _ttl, verbatim=_dir),
++                time)
++            return
++        return self._queue_line_impl(speaker, text, duration)
++
++    def _queue_line_impl(self, speaker: str, text: str, duration: float = 2.0, verbatim: bool = False):
++        """Queue a single line from dynamic dialogue systems - LEAKS INTEGRATED
++        (verbatim=True: director line, shown exactly as given, no leak injection)."""
+         if speaker == "FIEND":
+             self.fiend_line = text
+             self.fiend_timer = duration
+@@ -27484,7 +27520,7 @@
+                 pass
+         elif speaker == "BIRDSONG":
+             # Process through unified system
+-            if self.dialogue_engine:
++            if self.dialogue_engine and not verbatim:
+                 processed = self.dialogue_engine.process_line("BIRDSONG", text)
+ 
+                 front_leaks = []
+@@ -28130,6 +28166,24 @@
+ 
+         self.lightmaps = load_all_lightmaps()
+         self.lightmap_renderer = LightmapRenderer(self.lightmaps)
++        # JASMINE_DIRECTOR: every pose change (any caller) offers an action beat.
++        try:
++            if _jd_get_link is not None:
++                _lr = self.lightmap_renderer
++                _orig_set_pose = _lr.set_pose
++                _eng = self
++                def _jd_set_pose(pose, *a, **k):
++                    _before = getattr(_lr, "current_pose", None)
++                    _r = _orig_set_pose(pose, *a, **k)
++                    try:
++                        if getattr(_lr, "current_pose", None) != _before or pose != _before:
++                            _jd_get_link().action_beat(_eng, str(pose), time)
++                    except Exception:
++                        pass
++                    return _r
++                _lr.set_pose = _jd_set_pose
++        except Exception:
++            pass
+         # Every authored lightmap frame, including intros and cutscenes, carries
+         # the same canonical participant plate. It must not depend on the HUD.
+         self.lightmap_renderer.participant_banner_callback = self._render_participant_banner
+@@ -28156,6 +28210,7 @@
+ 
+         # New authored dialogue system
+         self.authored_dialogue = AuthoredDialogue()
++        self.authored_dialogue._jd_engine = self   # JASMINE_DIRECTOR choke point needs the engine
+ 
+         # Particle drip system
+         self.particle_drip = ParticleDrip()
+@@ -30312,6 +30367,12 @@
+         return self._display_line(sp, tx)
+ 
+     def _display_line(self, speaker: str, content) -> str:
++        # JASMINE_DIRECTOR: modal story path. No frame loop to park a line in, so wait
++        # (only if a director is attached) up to JASMINE_DIRECTOR_WAIT_MS, else no delay.
++        if _jd_get_link is not None and str(speaker).upper() == "BIRDSONG" and isinstance(content, str):
++            _jd_txt = _jd_get_link().offer_sync(self, speaker, content, 2.0, time)
++            if _jd_txt is not None:
++                content = _jd_txt
+         h, w = self.scr.getmaxyx()
+         cx = w // 2
+ 
+@@ -31581,6 +31642,10 @@
+ 
+     def _display_line_no_surge(self, speaker: str, content) -> str:
+         """Display line without surge handling - for surge push scenes."""
++        if _jd_get_link is not None and str(speaker).upper() == "BIRDSONG" and isinstance(content, str):
++            _jd_txt = _jd_get_link().offer_sync(self, speaker, content, 2.0, time)
++            if _jd_txt is not None:
++                content = _jd_txt
+         if getattr(self, '_grinder_skip', False):
+             return "OK"
+         h, w = self.scr.getmaxyx()
+@@ -40882,15 +40947,8 @@
+                         except Exception:
+                             pass
+                         # Route through existing HUD timers for on-screen display
+-                        # (JASMINE_DIRECTOR: her lines may be offered to an external director first;
+-                        #  on timeout/no reader the original line is queued unchanged.)
+-                        if _jd_get_link is not None and str(getattr(u, "speaker", "")).upper() == "BIRDSONG":
+-                            _jd_get_link().route_line(
+-                                self, u,
+-                                lambda _sp, _tx, _ttl: self.authored_dialogue.queue_line(_sp, _tx, duration=_ttl),
+-                                time)
+-                        else:
+-                            self.authored_dialogue.queue_line(u.speaker, u.text, duration=float(u.ttl))
++                        # (AuthoredDialogue.queue_line is the JASMINE_DIRECTOR choke point)
++                        self.authored_dialogue.queue_line(u.speaker, u.text, duration=float(u.ttl))
+             except Exception:
+                 pass
+             try:
+@@ -40971,11 +41029,6 @@
+             if target_pose != last_pose:
+                 self.lightmap_renderer.set_pose(target_pose)
+                 last_pose = target_pose
+-                try:
+-                    if _jd_get_link is not None:
+-                        _jd_get_link().action_beat(self, target_pose, time)
+-                except Exception:
+-                    pass
+ 
+             # Update lightmap renderer (breathing, transitions, effects)
+             # Feed WotW state into Fiendish's exact playback contract. This is
