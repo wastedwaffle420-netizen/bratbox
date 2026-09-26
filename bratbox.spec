@@ -17,13 +17,13 @@ a = Analysis(
     pathex=[str(BRATBOX)],
     binaries=[],
     datas=[
-        # Game code
-        (str(BRATBOX / "scene" / "ogre_director_v2"), "ogre_director_v2"),
-        (str(BRATBOX / "scene" / "runner"), "runner"),
+        # Game code (repo-root layout, no scene/ prefix)
+        (str(BRATBOX / "ogre_director_v2"), "ogre_director_v2"),
+        (str(BRATBOX / "runner"), "runner"),
         # Assets: lightmaps + sound bank (NOT the voice deck or cache)
-        (str(BRATBOX / "scene" / "ogre_director_v2" / "assets" / "audio" / "jasmine" / "squish"), "ogre_director_v2/assets/audio/jasmine/squish"),
-        (str(BRATBOX / "scene" / "ogre_director_v2" / "assets" / "audio" / "jasmine" / "toot"), "ogre_director_v2/assets/audio/jasmine/toot"),
-        (str(BRATBOX / "scene" / "ogre_director_v2" / "assets" / "audio" / "jasmine" / "newsounds"), "ogre_director_v2/assets/audio/jasmine/newsounds"),
+        (str(BRATBOX / "ogre_director_v2" / "assets" / "audio" / "jasmine" / "squish"), "ogre_director_v2/assets/audio/jasmine/squish"),
+        (str(BRATBOX / "ogre_director_v2" / "assets" / "audio" / "jasmine" / "toot"), "ogre_director_v2/assets/audio/jasmine/toot"),
+        (str(BRATBOX / "ogre_director_v2" / "assets" / "audio" / "jasmine" / "newsounds"), "ogre_director_v2/assets/audio/jasmine/newsounds"),
     ],
     hiddenimports=[
         "tkinter",
