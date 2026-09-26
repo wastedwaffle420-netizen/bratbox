@@ -13,7 +13,17 @@ HERE = Path(SPECPATH)
 BRATBOX = HERE
 
 a = Analysis(
-    [str(BRATBOX / "launcher.py")],
+    [
+        str(BRATBOX / "launcher.py"),
+        # Game entry points, analyzed so PyInstaller traces their full import
+        # graphs. The launcher exec's these via runpy from the bundled data
+        # files; their imports then resolve through the frozen module table.
+        # Without this, any game dependency not already imported by the
+        # launcher fails at runtime (e.g. "No module named '__future__'").
+        str(BRATBOX / "ogre_director_v2" / "ogre_shader_v5.py"),
+        str(BRATBOX / "runner" / "director.py"),
+        str(BRATBOX / "runner" / "elevenlabs_writer.py"),
+    ],
     pathex=[str(BRATBOX)],
     binaries=[],
     datas=[
