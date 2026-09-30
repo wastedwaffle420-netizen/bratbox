@@ -29,17 +29,28 @@ Emotional brief (his): Fiend is ONLY in control — lovingly, animalistically,
 earnestly humiliating. No glass, no washing machine. Keep it earful all the way through.
 
 Seeded RNG => reproducible, reusable. Seed 11 = closest to canon v7.
-No soundfile/scipy dependency — uses ffmpeg + numpy + wave only.
+No soundfile/scipy/ffmpeg dependency — decodes WAVs with stdlib wave +
+numpy only, so it runs on a bare Windows box with just numpy installed.
+
+The 14 source WAVs live outside git (explicit audio). Point the engine
+at them with the BRATBOX_BED_SOURCES env var or set_source_dir().
 """
-import subprocess
 import wave
 import numpy as np
 import os
 import sys
 
 SR = 44100
-SDIR = "/home/hatch/workspace/sfx/rose/verified/NEWSOUNDS--VERIFIED"
+SDIR = os.environ.get(
+    "BRATBOX_BED_SOURCES",
+    "/home/hatch/workspace/sfx/rose/verified/NEWSOUNDS--VERIFIED")
 DUR = 48.0
+
+
+def set_source_dir(path):
+    """Point the engine at a directory holding the 14 relabeled WAVs."""
+    global SDIR
+    SDIR = path
 
 # number -> filename (from his screenshots)
 USABLE = {
@@ -59,19 +70,49 @@ USABLE = {
     24: "near climax sucking.wav",
 }
 
+def _decode_wav(path):
+    """Decode a PCM WAV to mono float64 at SR via stdlib wave + numpy.
+
+    Handles 8/16/24/32-bit, any channel count (mixed to mono), and
+    resamples to SR with linear interpolation. No ffmpeg needed."""
+    with wave.open(path, "rb") as wf:
+        nch = wf.getnchannels()
+        sw = wf.getsampwidth()
+        fr = wf.getframerate()
+        raw = wf.readframes(wf.getnframes())
+    if sw == 1:
+        data = (np.frombuffer(raw, dtype=np.uint8).astype(np.float64)
+                - 128.0) / 128.0
+    elif sw == 2:
+        data = np.frombuffer(raw, dtype=np.int16).astype(np.float64) / 32768.0
+    elif sw == 3:
+        b = np.frombuffer(raw, dtype=np.uint8)
+        b = b[:len(b) // 3 * 3].reshape(-1, 3)
+        iv = (b[:, 0].astype(np.int32)
+              | (b[:, 1].astype(np.int32) << 8)
+              | (b[:, 2].astype(np.int32) << 16))
+        iv = np.where(iv >= 0x800000, iv - 0x1000000, iv)
+        data = iv.astype(np.float64) / 8388608.0
+    elif sw == 4:
+        data = (np.frombuffer(raw, dtype=np.int32).astype(np.float64)
+                / 2147483648.0)
+    else:
+        raise RuntimeError(f"unsupported WAV depth {sw * 8}-bit: {path}")
+    if nch > 1:
+        data = data.reshape(-1, nch).mean(axis=1)
+    if fr != SR:
+        new_len = max(1, int(round(len(data) * SR / fr)))
+        data = np.interp(np.linspace(0, len(data) - 1, new_len),
+                         np.arange(len(data)), data)
+    return data
+
+
 def load(num):
     name = USABLE[num]
     path = os.path.join(SDIR, name)
     if not os.path.exists(path):
         raise FileNotFoundError(f"missing {num}: {path}")
-    # decode to mono 44100 float32 via ffmpeg
-    proc = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", path, "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"],
-        capture_output=True,
-    )
-    if not proc.stdout:
-        raise RuntimeError(f"ffmpeg failed on {path}: {proc.stderr.decode()[:200]}")
-    data = np.frombuffer(proc.stdout, dtype=np.float32).astype(np.float64)
+    data = _decode_wav(path)
     peak = np.max(np.abs(data))
     if peak > 1e-6:
         data = data / peak

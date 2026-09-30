@@ -177,19 +177,122 @@ def _intimacy_dir() -> Path:
     return _sfx_library() / "intimacy"
 
 
-def _bed_start(clips: Path, manifest, logf, idx: int) -> bool:
-    """Drop the intimacy bed into the session and announce the loop."""
-    src = _intimacy_dir() / "intimacy_bed.mp3"
-    if not src.is_file():
-        logj(logf, event="intimacy_bed_missing")
-        return False
-    dest = clips / "bed_intimacy.mp3"
+def _bed_source_candidates():
+    """Where the 14 relabeled canon WAVs might live (explicit audio,
+    never in git — shipped in the asset zip or via BRATBOX_BED_SOURCES)."""
+    cands = []
+    env = os.environ.get("BRATBOX_BED_SOURCES", "").strip()
+    if env:
+        cands.append(Path(env))
     try:
-        if not dest.is_file():
-            dest.write_bytes(src.read_bytes())
+        cands.append(_sfx_library() / "newsounds")
+    except Exception:
+        pass
+    try:
+        cands.append(_intimacy_dir())
+    except Exception:
+        pass
+    return cands
+
+
+def _find_bed_sources():
+    """Return a directory holding all 14 canon WAVs, or None.
+
+    None covers every failure mode (no numpy, no sources) — the caller
+    falls back to the static bed, never crashes."""
+    try:
+        import bed_procedural_canon as eng
+    except Exception:
+        return None
+    need = set(eng.USABLE.values())
+    # the engine's own configured dir (env default or set_source_dir)
+    try:
+        if getattr(eng, "SDIR", None):
+            _cands = [Path(eng.SDIR)] + _bed_source_candidates()
+        else:
+            _cands = _bed_source_candidates()
+    except Exception:
+        _cands = _bed_source_candidates()
+    for root in _cands:
+        try:
+            if not root.is_dir():
+                continue
+            dirs = [root] + [p for p in root.iterdir() if p.is_dir()]
+        except Exception:
+            continue
+        for d in dirs:
+            try:
+                names = {p.name for p in d.iterdir() if p.is_file()}
+            except Exception:
+                continue
+            if need.issubset(names):
+                return d
+    return None
+
+
+def _pregen_procedural_bed(clips: Path, logf) -> None:
+    """Render a fresh seeded canon bed into the session clips dir.
+
+    Runs once at director startup; synchronous but sub-second. The bed
+    trigger in the game loop then just picks it up. Static
+    intimacy_bed.mp3 remains the fallback in _bed_start. Missing numpy
+    or missing source WAVs degrade to the static bed, never a crash.
+    Set BRATBOX_BED_PROCEDURAL=0 to skip generation entirely.
+    """
+    if os.environ.get("BRATBOX_BED_PROCEDURAL", "1").strip().lower() in (
+            "0", "no", "off", "false"):
+        return
+    dest = clips / "bed_procedural.wav"
+    try:
+        import random as _r
+        srcdir = _find_bed_sources()
+        if srcdir is None:
+            logj(logf, event="bed_procedural_no_sources")
+            return
+        import bed_procedural_canon as eng
+        eng.set_source_dir(str(srcdir))
+        seed = _r.randrange(1, 100000)
+        eng.write_wav(str(dest), eng.build(seed=seed))
+        logj(logf, event="bed_procedural_ready", seed=seed, clip=dest.name)
     except Exception as e:
-        logj(logf, event="bed_copy_error", error=str(e)[:120])
-        return False
+        logj(logf, event="bed_procedural_failed", error=str(e)[:160])
+        try:
+            dest.unlink()
+        except Exception:
+            pass
+
+
+def _bed_start(clips: Path, manifest, logf, idx: int) -> bool:
+    """Drop the intimacy bed into the session and announce the loop.
+
+    Procedural canon bed first (fresh seeded 48s bed rendered at session
+    start — the newest release); static intimacy_bed.mp3 as fallback;
+    silence when neither is available. The BRATBOX_BED_LOOP gate still
+    applies at the call site.
+    """
+    dest = None
+    proc = clips / "bed_procedural.wav"
+    if proc.is_file() and proc.stat().st_size > 1000:
+        dest = clips / "bed_intimacy.wav"
+        try:
+            if (not dest.is_file()
+                    or dest.stat().st_mtime < proc.stat().st_mtime):
+                dest.write_bytes(proc.read_bytes())
+        except Exception as e:
+            logj(logf, event="bed_copy_error", error=str(e)[:120])
+            return False
+    else:
+        src = _intimacy_dir() / "intimacy_bed.mp3"
+        if not src.is_file():
+            logj(logf, event="intimacy_bed_missing")
+            return False
+        dest = clips / "bed_intimacy.mp3"
+        try:
+            if not dest.is_file():
+                dest.write_bytes(src.read_bytes())
+        except Exception as e:
+            logj(logf, event="bed_copy_error", error=str(e)[:120])
+            return False
     manifest.write(json.dumps({"idx": idx, "kind": "bed", "action": "start",
                                "clip": dest.name,
                                "t": round(time.time(), 3)}) + "\n")
@@ -244,7 +347,9 @@ def main() -> int:
         d.mkdir(parents=True, exist_ok=True)
     # never loop a crashed session's bed tail: fresh session, no bed
     try:
-        (clips / "bed_intimacy.mp3").unlink(missing_ok=True)
+        for _old in ("bed_intimacy.mp3", "bed_intimacy.wav",
+                     "bed_procedural.wav"):
+            (clips / _old).unlink(missing_ok=True)
     except Exception:
         pass
 
@@ -264,6 +369,10 @@ def main() -> int:
                 os.mkfifo(str(p), 0o600)
 
     logf = open(sess / "director.log", "a", buffering=1)
+    # Procedural canon bed: fresh seeded 48s bed per session, rendered
+    # once here (sub-second). Falls back to the static intimacy_bed.mp3
+    # at trigger time if sources/numpy are unavailable.
+    _pregen_procedural_bed(clips, logf)
     manifest = open(clips / "manifest.jsonl", "a", buffering=1)
     manifest_idx = sum(1 for _ in open(clips / "manifest.jsonl")) if (clips / "manifest.jsonl").exists() else 0
     logj(logf, event="director_start",

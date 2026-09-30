@@ -602,6 +602,44 @@ class ElevenLabsWriter(DeckWriter):
         print(f"elevenlabs writer: voice={self.voice_id} model={model} "
               f"key={mode}", flush=True)
 
+    def _render_jasmine_ttscli(self, text: str, tag: str, seq: int,
+                               category: str):
+        """Piper-mode voice for her lines: glossy pendant via the local tts
+        CLI, with the pre-rendered voice cache (runner/voice_cache/jasmine)
+        checked first so machines without the tts binary still speak.
+        Returns (clip filename, dur_s). Raises when neither cache nor the
+        tts binary can produce audio."""
+        import shutil as _sh
+        import subprocess
+        self.clips.mkdir(parents=True, exist_ok=True)
+        dest = self.clips / f"beat_{tag}.mp3"
+        tts_text = jasmine_tts_text(text)
+        if not tts_text:
+            return None, 0.0
+        jkey = _ttscli_cache_key(JASMINE_TTSCLI_VOICE, tts_text)
+        JASMINE_VOICE_CACHE.mkdir(parents=True, exist_ok=True)
+        jcached = JASMINE_VOICE_CACHE / f"ttscli_{jkey}.mp3"
+        if jcached.is_file() and jcached.stat().st_size > 1000:
+            _sh.copyfile(jcached, dest)
+            dur = self._clip_dur_s(dest)
+            print(f"voice-cache hit {seq} ({category}) dur={dur:.1f}s",
+                  flush=True)
+            return dest.name, dur
+        tts_bin = _sh.which("tts")
+        if not tts_bin:
+            raise RuntimeError("tts binary not on PATH and no cached clip")
+        subprocess.run(
+            [tts_bin, "speak", "--voice", JASMINE_TTSCLI_VOICE,
+             "--text", tts_text, "--output", str(dest)],
+            timeout=60, check=True, capture_output=True)
+        try:
+            _sh.copyfile(dest, jcached)
+        except Exception:
+            pass
+        dur = self._clip_dur_s(dest)
+        print(f"tts render {seq} ({category}) dur={dur:.1f}s", flush=True)
+        return dest.name, dur
+
     def render_line(self, lid: str, text: str, beat: dict, category: str):
         """Render one line; return (clip filename, dur_s).
 
@@ -622,8 +660,14 @@ class ElevenLabsWriter(DeckWriter):
         try:
             if _PIPER_MODE:
                 # Launcher piper mode: no ElevenLabs at all — her lines
-                # go through the tts CLI (glossy pendant) / deck fallback.
-                raise RuntimeError("piper mode: elevenlabs disabled")
+                # go through the tts CLI (glossy pendant), cache first,
+                # deck after that.
+                clip, dur = self._render_jasmine_ttscli(text, tag, seq,
+                                                        category)
+                if clip:
+                    return clip, dur
+                raise RuntimeError("piper mode: tts unavailable, "
+                                   "falling back to deck")
             if _el_dead:
                 raise RuntimeError("circuit breaker tripped")
             t0 = time.time()
@@ -662,37 +706,14 @@ class ElevenLabsWriter(DeckWriter):
             if not src.exists() and lid.startswith("xchg_"):
                 # Exchange lines have no pre-rendered deck clip — her line
                 # renders via the local tts CLI (glossy pendant, Andrew's
-                # pick 2026-09-25) so the words match the on-screen text.
-                # The offline voice deck (voice_cache/jasmine, shipped in
-                # the zip) is checked first — on machines without the tts
-                # binary the pre-rendered clip plays, no API needed.
+                # pick 2026-09-25) so the words match the on-screen text,
+                # voice cache first.
                 try:
-                    import shutil as _sh
-                    import subprocess
-                    self.clips.mkdir(parents=True, exist_ok=True)
-                    dest = self.clips / f"beat_{tag}.mp3"
-                    tts_text = jasmine_tts_text(text)
-                    jkey = _ttscli_cache_key(JASMINE_TTSCLI_VOICE, tts_text)
-                    JASMINE_VOICE_CACHE.mkdir(parents=True, exist_ok=True)
-                    jcached = JASMINE_VOICE_CACHE / f"ttscli_{jkey}.mp3"
-                    if jcached.is_file() and jcached.stat().st_size > 1000:
-                        _sh.copyfile(jcached, dest)
-                        dur = self._clip_dur_s(dest)
-                        print(f"voice-cache hit {seq} ({category}) "
-                              f"dur={dur:.1f}s", flush=True)
-                        return dest.name, dur
-                    subprocess.run(
-                        ["tts", "speak", "--voice", JASMINE_TTSCLI_VOICE,
-                         "--text", tts_text, "--output", str(dest)],
-                        timeout=60, check=True, capture_output=True)
-                    try:
-                        _sh.copyfile(dest, jcached)
-                    except Exception:
-                        pass
-                    dur = self._clip_dur_s(dest)
-                    print(f"tts fallback {seq} ({category}) "
-                          f"dur={dur:.1f}s", flush=True)
-                    return dest.name, dur
+                    clip, dur = self._render_jasmine_ttscli(
+                        text, tag, seq, category)
+                    if clip:
+                        return clip, dur
+                    raise RuntimeError("tts render returned no clip")
                 except Exception as e3:
                     print(f"tts fallback failed for {seq}: {e3}",
                           flush=True)
@@ -909,6 +930,10 @@ class ElevenLabsWriter(DeckWriter):
                     # the bit lands in one breath. Flavor follows his mood:
                     # playful moods get beast-or-devotion, sincere moods get
                     # devotion only. Never on softsad — don't puncture R6.
+                    # fbase: the line before the ledger bit — the offline
+                    # crowned-voice cache only holds base lines, so piper
+                    # mode falls back to it when the combo isn't cached.
+                    fbase = ftext
                     if (ftext and fmood not in ("softsad", "escalation", "daylife")
                             and not echo_active and not crest_active
                             and _rf.random() < fiend_ledger_chance()):
@@ -922,14 +947,25 @@ class ElevenLabsWriter(DeckWriter):
                             ftext = ftext.rstrip() + " " + ltext
                 if ftext:
                     fvid = _resolve_fiend_voice_id()
-                    if getattr(self, "_el_dead", False):
-                        # Breaker tripped: ElevenLabs is dead, but he still
-                        # speaks — straight to his offline voice, no wasted
-                        # API attempts.
-                        faudio = _render_fiend_ttscli(ftext)
-                    else:
-                        faudio = render_fiend_line(
-                            ftext, fvid, fmood, self.model)
+                    try:
+                        if getattr(self, "_el_dead", False):
+                            # Breaker tripped: ElevenLabs is dead, but he
+                            # still speaks — straight to his offline voice,
+                            # no wasted API attempts.
+                            faudio = _render_fiend_ttscli(ftext)
+                        else:
+                            faudio = render_fiend_line(
+                                ftext, fvid, fmood, self.model)
+                    except Exception:
+                        if ftext != fbase and (_PIPER_MODE or getattr(
+                                self, "_el_dead", False)):
+                            # Offline crowned voice: the ledger combo is
+                            # composed at runtime so it won't be in the
+                            # pre-rendered cache — fall back to the base
+                            # line's clip rather than skipping his reply.
+                            faudio = _render_fiend_ttscli(fbase)
+                        else:
+                            raise
                     fdest = self.clips / f"fiend_{tag}.mp3"
                     fdest.write_bytes(faudio)
                     fdur = mp3_dur_s(fdest)

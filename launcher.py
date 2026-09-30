@@ -103,7 +103,7 @@ class Launcher(tk.Tk):
             ("voiceless", "Voiceless — just the game.\nStill fun, zero setup."),
             ("elevenlabs", "My ElevenLabs key — live voices.\nBest quality, needs API key."),
             ("cache", "My cache — offline voices.\nFrom your previous sessions."),
-            ("piper", "Piper TTS — offline crowned voices.\nGlossy pendant + Sparkling Bracelet. No key, no cache."),
+            ("piper", "Piper TTS — offline crowned voices.\nGlossy pendant + Sparkling Bracelet. No key —\nneeds the crowned voice cache pack in runner/voice_cache."),
         ]
         for val, label in modes:
             rb = ttk.Radiobutton(main, text=label, variable=self.mode_var, value=val,
@@ -266,22 +266,31 @@ def launch_game(cfg: dict):
         # Dev: python launcher.py --run-*
         base_args = [str(Path(__file__).resolve())]
 
-    def _spawn(mode: str, session: str):
+    def _spawn(mode: str, session: str, logname: str | None = None,
+               extra_env: dict | None = None):
+        # Subprocess chatter goes to a session log file, never DEVNULL —
+        # a silent writer/director is undiagnosable (2026-09-30: piper
+        # mode failed voiceless with zero trace because of DEVNULL).
         cmd = [exe] + base_args + [mode, session]
-        return subprocess.Popen(cmd, env=env,
+        penv = dict(env)
+        if extra_env:
+            penv.update(extra_env)
+        if logname:
+            logf = open(Path(session) / logname, "a", buffering=1)
+            return subprocess.Popen(cmd, env=penv,
+                stdout=logf, stderr=subprocess.STDOUT)
+        return subprocess.Popen(cmd, env=penv,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    director = _spawn("--run-director", str(session))
+    director = _spawn("--run-director", str(session), "director_stdout.log")
     writer = None
     # piper mode renders live via the local tts CLI (crowned voices) with
     # the pre-rendered deck as fallback — no ElevenLabs key involved.
     if cfg["voice_mode"] in ("elevenlabs", "cache", "piper"):
-        writer_env = dict(env)
-        if cfg["voice_mode"] == "cache":
-            writer_env["LOCKKEY_OFFLINE"] = "1"
-        cmd = [exe] + base_args + ["--run-writer", str(session)]
-        writer = subprocess.Popen(cmd, env=writer_env,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        extra = ({"LOCKKEY_OFFLINE": "1"}
+                 if cfg["voice_mode"] == "cache" else None)
+        writer = _spawn("--run-writer", str(session), "writer_stdout.log",
+                        extra)
     try:
         # Game in the foreground (inherits our console)
         cmd = [exe] + base_args + ["--run-game"]
