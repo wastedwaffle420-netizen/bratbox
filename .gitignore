@@ -15,12 +15,10 @@ runs/
 *.log
 fifo/
 
-# Voice cache (user-local, never committed)
-voice_cache/
-# Demo voice pack lives in Releases, not in git
+# Voice cache + intimacy audio ship in the repo (clone-and-run; Andrew's call 2026-09-30)
+# runner/voice_cache/ holds the pre-rendered crowned voices (Glossy Pendant / Sparkling Bracelet)
 
-# Intimacy beds (explicit audio): user-local, never committed to the public repo
-ogre_director_v2/assets/audio/jasmine/intimacy/
+# Intimacy beds ship in the repo (clone-and-run)
 
 # But DO commit the sound bank (SFX are part of the game)
 !ogre_director_v2/assets/audio/jasmine/squish/
