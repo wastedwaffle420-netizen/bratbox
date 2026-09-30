@@ -47,7 +47,7 @@ set BRATBOX_SESSION=%SESSION%
 
 echo session: %SESSION%
 echo mode: rhythm-only / intensity=rough / bed=elastic_grotesque
-echo voice: glossy pendant (her) + mild yarn (him), offline deck
+echo voice: glossy pendant (her) + Sparkling Bracelet (him), offline deck
 echo build: v11-windows-20260925-1646
 echo.
 

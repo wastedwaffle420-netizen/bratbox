@@ -293,13 +293,24 @@ def fiend_tts_text(text: str) -> str:
 JASMINE_TTSCLI_VOICE = "avocado_v2:qvd_03858"
 
 
-# Andrew's pick 2026-09-25: fiend's offline voice. "Mild Yarn" — high,
-# gentle — reads softboi, not fuckboy. Same engine as marisol, no quota.
-FIEND_TTSCLI_VOICE = "avocado_v2:qvd_02005"
+# Andrew's pick 2026-09-30 (shootout winner, dethroned Quirky Domino
+# after one day, supersedes the 2026-09-25 Mild Yarn stopgap): fiend's
+# offline voice. "Sparkly Bracelet" (avocado_v2:qvd_03988) — the prettiest,
+# slightly androgynous voice with smoky texture. The "pretty boy is literal"
+# hypothesis won.
+FIEND_TTSCLI_VOICE = "avocado_v2:qvd_03988"
+
+
+# Launcher piper mode (BRATBOX_VOICE_MODE=piper): skip ElevenLabs
+# entirely and voice everything through the tts CLI crowned voices
+# (glossy pendant + Sparkling Bracelet above). No key, no network — on
+# machines without the tts binary the pre-rendered cache/deck carries it.
+_PIPER_MODE = (os.environ.get("BRATBOX_VOICE_MODE", "").strip().lower()
+               == "piper")
 
 
 def _render_fiend_ttscli(text: str) -> bytes:
-    """Render one fiend line with the local tts CLI (mild yarn voice).
+    """Render one fiend line with the local tts CLI (Sparkling Bracelet voice).
     Returns mp3 bytes. Raises RuntimeError on failure."""
     import shutil
     import subprocess
@@ -361,10 +372,13 @@ def render_fiend_line(text: str, voice_id: str, mood: str = "tease_back",
 
     FIEND_TTS=auto (default): ElevenLabs first; ANY failure (no key,
     quota, network, short response) falls back to the offline tts CLI
-    voice (mild yarn), then Piper, transparently. =elevenlabs: force
+    voice (Sparkling Bracelet), then Piper, transparently. =elevenlabs: force
     old behavior (raise on failure). =piper: force the Piper fallback
-    (testing / saving credits)."""
+    (testing / saving credits). BRATBOX_VOICE_MODE=piper (launcher):
+    skip ElevenLabs, straight to the tts CLI crowned voice."""
     tts_mode = fiend_tts_mode()
+    if _PIPER_MODE:
+        return _render_fiend_ttscli(text)
     if tts_mode == "piper":
         return _render_fiend_piper(text)
     try:
@@ -380,7 +394,7 @@ def render_fiend_line(text: str, voice_id: str, mood: str = "tease_back",
             except Exception as pe:
                 raise RuntimeError(
                     f"fiend render failed (elevenlabs: {e}; "
-                    f"ttscli: {te}; piper fallback: {pe})"
+                    f"ttscli (Sparkling Bracelet): {te}; piper fallback: {pe})"
                 ) from e
 
 
@@ -606,6 +620,10 @@ class ElevenLabsWriter(DeckWriter):
         # go straight to fallback for the rest of the session.
         _el_dead = getattr(self, "_el_dead", False)
         try:
+            if _PIPER_MODE:
+                # Launcher piper mode: no ElevenLabs at all — her lines
+                # go through the tts CLI (glossy pendant) / deck fallback.
+                raise RuntimeError("piper mode: elevenlabs disabled")
             if _el_dead:
                 raise RuntimeError("circuit breaker tripped")
             t0 = time.time()

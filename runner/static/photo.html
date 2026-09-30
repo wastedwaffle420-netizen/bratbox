@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jasmine — live feed</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#0b0710; overflow:hidden;
+    font-family:'DejaVu Sans Mono', Menlo, Consolas, monospace; }
+  #stage { position:fixed; inset:34px 0 40px 0; display:flex; align-items:center;
+    justify-content:center; }
+  #photo { max-width:96vw; max-height:100%; border-radius:10px;
+    box-shadow:0 0 60px rgba(255,158,207,.12); opacity:0; transition:opacity 1.2s; }
+  #photo.on { opacity:1; }
+  #top { position:fixed; top:0; left:0; right:0; height:34px; display:flex;
+    align-items:center; gap:14px; padding:0 16px; color:#b9a3c9; font-size:12px;
+    background:#140d1a; border-bottom:1px solid #2c1f38; }
+  #dot { width:8px; height:8px; border-radius:50%; background:#5b3a68; }
+  #dot.live { background:#ff9ecf; animation:pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity:.4; } }
+  #cap { position:fixed; left:0; right:0; bottom:0; min-height:40px; display:flex;
+    align-items:center; gap:16px; padding:6px 16px; color:#8d7499; font-size:12px;
+    background:#140d1a; border-top:1px solid #2c1f38; }
+  #cap .grow { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  button { background:#1a1022; color:#e8c8e0; border:1px solid #5b3a68;
+    border-radius:8px; padding:6px 14px; font:12px monospace; cursor:pointer; }
+  button:hover { border-color:#ff9ecf; }
+  #warm { color:#8d7499; font-size:14px; text-align:center; animation:pulse 2s infinite; }
+  #err { color:#ff6b9d; font-size:12px; }
+</style>
+</head>
+<body>
+<div id="top"><span id="dot"></span><span>jasmine — live feed</span><span id="stat"></span><span id="err"></span></div>
+<div id="stage"><div id="warm">warming up the camera…<br><small id="warmsub">first photo lands about a minute after you open this</small></div><img id="photo" alt=""></div>
+<div id="cap"><span id="when"></span><span class="grow" id="pcount"></span><button id="tog">pause</button></div>
+<script>
+(function(){
+  const qs = new URLSearchParams(location.search);
+  const token = qs.get("token") || "";
+  const backend = qs.get("backend") || "replicate";
+  const img = document.getElementById("photo");
+  const warm = document.getElementById("warm");
+  const dot = document.getElementById("dot");
+  const stat = document.getElementById("stat");
+  const when = document.getElementById("when");
+  const pcount = document.getElementById("pcount");
+  const err = document.getElementById("err");
+  const tog = document.getElementById("tog");
+  let lastTs = 0, paused = false;
+  if (backend === "local") {
+    document.getElementById("warmsub").textContent =
+      "local render — first photo lands when your card finishes it (a few minutes)";
+  }
+
+  function api(path, opts){
+    return fetch(path + "?token=" + encodeURIComponent(token), opts).then(r => r.json());
+  }
+  tog.addEventListener("click", () => {
+    api(paused ? "/api/photo/start" : "/api/photo/stop", {method:"POST"})
+      .then(j => { paused = !!j.status.paused; draw(); });
+  });
+  function draw(){
+    tog.textContent = paused ? "resume" : "pause";
+    dot.classList.toggle("live", !paused);
+  }
+  function poll(){
+    api("/api/photo/latest").then(j => {
+      paused = !!j.paused; draw();
+      const l = j.latest;
+      if (l && l.ts > lastTs) {
+        lastTs = l.ts;
+        warm.style.display = "none";
+        img.classList.remove("on");
+        const pre = new Image();
+        pre.onload = () => {
+          img.src = pre.src;
+          requestAnimationFrame(() => img.classList.add("on"));
+        };
+        pre.src = l.url;
+        const d = new Date(l.ts * 1000);
+        when.textContent = d.toLocaleTimeString();
+      }
+    }).catch(()=>{});
+    api("/api/photo/status").then(s => {
+      const cost = (s.est_cost_usd || 0).toFixed(2);
+      stat.textContent = "· " + (s.count || 0) + " photos · ~$" + cost;
+      pcount.textContent = s.pool_size ? ("cycling " + s.pool_size + " scenes · one a minute") : "";
+      err.textContent = s.last_error ? ("⚠ " + s.last_error) : "";
+    }).catch(()=>{});
+  }
+  setInterval(poll, 8000); poll();
+})();
+</script>
+</body>
+</html>

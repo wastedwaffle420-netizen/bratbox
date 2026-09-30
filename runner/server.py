@@ -35,6 +35,10 @@ import websockets
 from websockets.http11 import Request, Response
 from websockets.datastructures import Headers
 
+# sibling imports work in dev and in the frozen exe (runner/ ships as data)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import photo_worker  # noqa: E402
+
 started = time.time()
 shutdown = False
 TOKEN = ""
@@ -209,6 +213,42 @@ def process_request(connection, request: Request):
             v = 0.0
         _log_input(voice=v)
         return _json_resp({"ok": True})
+
+    # ---- photo terminal (ultimate-bratbox sensory layer) ----
+    # Optional second window: he pastes a Replicate key, we validate it,
+    # and a worker thread generates one candid photo a minute from the
+    # prompt pool. The key lives in memory only — never on disk, never
+    # in a log.
+    if p == "/api/photo/key":
+        try:
+            body = json.loads(getattr(request, "body", None) or b"{}")
+            ok = photo_worker.start(str(body.get("token") or ""))
+        except Exception:
+            ok = False
+        return _json_resp({"ok": ok, "status": photo_worker.status()})
+
+    if p == "/api/photo/local":
+        # Maximalist DLC: start the photo terminal on the local inference
+        # backend. No key, no network — needs the DLC model pack installed.
+        try:
+            ok = photo_worker.start_local()
+        except Exception:
+            ok = False
+        return _json_resp({"ok": ok, "status": photo_worker.status()})
+
+    if p == "/api/photo/status":
+        return _json_resp(photo_worker.status())
+
+    if p == "/api/photo/latest":
+        return _json_resp(photo_worker.latest())
+
+    if p == "/api/photo/stop":
+        photo_worker.stop()
+        return _json_resp({"ok": True, "status": photo_worker.status()})
+
+    if p == "/api/photo/start":
+        photo_worker.resume()
+        return _json_resp({"ok": True, "status": photo_worker.status()})
 
     if p.startswith("/clips/"):
         name = p[len("/clips/"):]

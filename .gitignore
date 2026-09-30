@@ -19,6 +19,9 @@ fifo/
 voice_cache/
 # Demo voice pack lives in Releases, not in git
 
+# Intimacy beds (explicit audio): user-local, never committed to the public repo
+ogre_director_v2/assets/audio/jasmine/intimacy/
+
 # But DO commit the sound bank (SFX are part of the game)
 !ogre_director_v2/assets/audio/jasmine/squish/
 !ogre_director_v2/assets/audio/jasmine/toot/

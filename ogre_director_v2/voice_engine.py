@@ -915,17 +915,19 @@ class AudioManager:
         # Offline mode (2026-09-25: voice-mode aware):
         # - BRATBOX_VOICE_MODE=voiceless → no voices at all, skip TTS entirely
         # - BRATBOX_VOICE_MODE=cache → offline, play from cache only
-        # - BRATBOX_VOICE_MODE=elevenlabs → online opt-in, needs YOUR key in ELEVENLABS_API_KEY
+        # - BRATBOX_VOICE_MODE=piper → offline, live tts CLI crowned voices
+        #   (glossy pendant + Sparkling Bracelet), cache/deck fallback
+        # - BRATBOX_VOICE_MODE=elevenlabs → online, needs API key
         # - LOCKKEY_OFFLINE=1 → fully disable any network TTS
         # - If API keys are missing, we automatically drop into offline-safe mode.
         _voice_mode = str(os.environ.get("BRATBOX_VOICE_MODE", "")).strip().lower()
-        self.voice_mode = _voice_mode or "cache"  # default to local cache (2026-09-29: local-first)
+        self.voice_mode = _voice_mode or "elevenlabs"  # default to elevenlabs for backward compat
 
         self.offline = False
         if _voice_mode == "voiceless":
             self.offline = True
             self.voiceless = True
-        elif _voice_mode == "cache":
+        elif _voice_mode in ("cache", "piper"):
             self.offline = True
             self.voiceless = False
         else:
@@ -1340,7 +1342,7 @@ class AudioManager:
     def _synthesize_to_wav(self, speaker: str, text: str, post_preset: str = "default", cache_extra: str = "", voice_settings_override: Optional[dict] = None) -> Path:
         """Return a WAV path for this line.
 
-        Resolution order (2026-09-29: local-first):
+        Resolution order (2026-09-25: ElevenLabs-first):
           1) writable cache_dir (write-through cache of synthesized lines)
           2) online synthesis (ElevenLabs) -> writes into writable cache_dir (if not offline)
           3) bundled voice_cache ONLY if BRATBOX_BUNDLED_VOICE=1 (not shipped by default)

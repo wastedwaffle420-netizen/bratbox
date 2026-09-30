@@ -36,6 +36,20 @@
   <span id="voice">♪ jasmine speaking…</span>
   <span id="stats"></span>
   <span id="vsense" style="cursor:pointer;color:#8d7499" title="optional: let her hear how close you are">◌ voice sense: off</span>
+  <span id="photoset" style="cursor:pointer;color:#8d7499" title="optional: her live photo feed in a second window">◌ photo window: off</span>
+</div>
+<div id="photoov" style="display:none;position:fixed;inset:0;background:rgba(11,7,16,.92);z-index:20;align-items:center;justify-content:center;">
+  <div style="color:#e8c8e0;font:14px monospace;border:1px solid #5b3a68;padding:22px 28px;border-radius:10px;background:#1a1022;max-width:420px;">
+    <div style="margin-bottom:10px;">her live photo feed</div>
+    <div style="color:#8d7499;font-size:12px;margin-bottom:12px;">optional. paste a replicate api key and a second window opens, generating one candid photo a minute from her scene pool. about $0.04 a photo — the feed shows a running total. the key stays in memory only, never saved.</div>
+    <input id="repkey" type="password" placeholder="replicate api key" style="width:100%;box-sizing:border-box;background:#0b0710;color:#e8c8e0;border:1px solid #5b3a68;border-radius:6px;padding:8px;font:13px monospace;margin-bottom:10px;">
+    <div style="display:flex;gap:10px;align-items:center;">
+      <button id="repgo" style="background:#2c1f38;color:#e8c8e0;border:1px solid #5b3a68;border-radius:8px;padding:8px 18px;font:13px monospace;cursor:pointer;">validate + open</button>
+      <button id="repclose" style="background:none;color:#8d7499;border:none;font:13px monospace;cursor:pointer;">cancel</button>
+    </div>
+    <div id="repstat" style="color:#8d7499;font-size:12px;margin-top:10px;"></div>
+    <div style="color:#5b3a68;font-size:11px;margin-top:8px;">get a key: replicate.com → account → api tokens</div>
+  </div>
 </div>
 <div id="enable"><div>enter the shader<small>click to enable sound — her voice needs one tap</small></div></div>
 <script src="vendor/xterm.min.js"></script>
@@ -101,6 +115,7 @@
   document.getElementById("enable").addEventListener("click", () => {
     document.getElementById("enable").style.display = "none";
     soundOn = true; term.focus();
+    if (pendingBed) startBed(pendingBed);
   });
   function duckOlder(speaker){
     // fade same-speaker older lines out over ~120ms, then stop them
@@ -120,6 +135,8 @@
       .then(r => r.json()).then(j => {
         (j.clips || []).forEach(c => {
           lastClip = Math.max(lastClip, c.idx);
+          // intimacy bed: loop control, never enters the voice queue
+          if ((c.kind || "") === "bed") { handleBed(c); return; }
           queue.push(c);
         });
         pump();
@@ -196,6 +213,32 @@
     else setTimeout(pump, 120);
   }
   setInterval(pollClips, 1500); pollClips();
+
+  // ---- intimacy bed (sensory layer): loops under everything ----
+  // The director announces bed start/stop via manifest kind:"bed".
+  // A single looping <audio> sits outside the voice pump so it never
+  // blocks, ducks, or gets queued behind her lines.
+  let bedAudio = null, pendingBed = null;
+  function startBed(clip){
+    if (bedAudio) { try { bedAudio.pause(); } catch(e){} }
+    const a = new Audio("/clips/" + encodeURIComponent(clip) + "?token=" + encodeURIComponent(token));
+    a.loop = true;
+    a.volume = 0.35;
+    bedAudio = a;
+    a.play().catch(() => { if (bedAudio === a) bedAudio = null; });
+  }
+  function handleBed(c){
+    if (c.action === "stop") {
+      pendingBed = null;
+      if (bedAudio) { try { bedAudio.pause(); } catch(e){} bedAudio = null; }
+      return;
+    }
+    if (c.action === "start" && c.clip) {
+      pendingBed = c.clip;
+      if (!soundOn) return;
+      startBed(c.clip);
+    }
+  }
 
   // ---- gameplay SFX (v10.8): note hits/misses + squishes ----
   // The old hit/miss sounds played through server-side pygame synth —
@@ -274,6 +317,39 @@
       }).catch(()=>{});
   }
   setInterval(pollStatus, 5000); pollStatus();
+
+  // ---- photo terminal (optional second window) ----
+  const photoSet = document.getElementById("photoset");
+  const photoOv = document.getElementById("photoov");
+  const repKey = document.getElementById("repkey");
+  const repGo = document.getElementById("repgo");
+  const repStat = document.getElementById("repstat");
+  photoSet.addEventListener("click", () => {
+    photoOv.style.display = "flex"; repKey.focus();
+  });
+  document.getElementById("repclose").addEventListener("click", () => {
+    photoOv.style.display = "none";
+  });
+  repGo.addEventListener("click", () => {
+    const k = repKey.value.trim();
+    if (!k) { repStat.textContent = "paste a key first"; return; }
+    repStat.textContent = "checking the key…";
+    fetch("/api/photo/key?token=" + encodeURIComponent(token), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({token: k})
+    }).then(r => r.json()).then(j => {
+      if (j.ok) {
+        repKey.value = "";
+        photoOv.style.display = "none";
+        photoSet.textContent = "● photo window: live";
+        photoSet.style.color = "#ff9ecf";
+        window.open("/photo.html?token=" + encodeURIComponent(token), "_blank");
+      } else {
+        repStat.textContent = "key didn't validate — check it and try again";
+      }
+    }).catch(() => { repStat.textContent = "couldn't reach the server"; });
+  });
 
   // ---- voice sense (optional) ----
   // He opts in: the browser listens for VOCALIZATIONS — squeaks, gasps, moans —

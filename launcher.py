@@ -41,6 +41,7 @@ DEFAULTS = {
     "bird_voice_id": "",   # empty = use built-in default
     "fiend_voice_id": "",  # empty = use built-in default
     "input_offset_ms": 0,
+    "bed_sounds": True,    # intimacy bed loop under everything
 }
 
 
@@ -71,7 +72,7 @@ class Launcher(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("bratbox")
-        self.geometry("380x480")
+        self.geometry("380x570")
         self.resizable(False, False)
         self.cfg = load_config()
 
@@ -86,6 +87,7 @@ class Launcher(tk.Tk):
         style.configure("TFrame", background=bg)
         style.configure("TLabel", background=bg, foreground=fg, font=("Consolas", 10))
         style.configure("TRadiobutton", background=bg, foreground=fg, font=("Consolas", 10))
+        style.configure("TCheckbutton", background=bg, foreground=fg, font=("Consolas", 10))
         style.configure("TButton", font=("Consolas", 11, "bold"))
         style.configure("TEntry", fieldbackground="#1a1022", foreground=fg)
 
@@ -101,11 +103,24 @@ class Launcher(tk.Tk):
             ("voiceless", "Voiceless — just the game.\nStill fun, zero setup."),
             ("elevenlabs", "My ElevenLabs key — live voices.\nBest quality, needs API key."),
             ("cache", "My cache — offline voices.\nFrom your previous sessions."),
+            ("piper", "Piper TTS — offline crowned voices.\nGlossy pendant + Sparkling Bracelet. No key, no cache."),
         ]
         for val, label in modes:
             rb = ttk.Radiobutton(main, text=label, variable=self.mode_var, value=val,
                                  command=self._on_mode_change)
             rb.pack(anchor="w", pady=4)
+
+        # Bed loop toggle (ultimate-bratbox sensory layer). The intimacy
+        # bed loops under everything once he's in intimate territory —
+        # hot, but not everyone's thing, so it's a real switch.
+        bed_frame = ttk.Frame(main)
+        bed_frame.pack(fill="x", pady=(10, 0))
+        self.bed_var = tk.BooleanVar(value=bool(self.cfg.get("bed_sounds", True)))
+        bed_cb = ttk.Checkbutton(bed_frame, text="Bed loop",
+                                 variable=self.bed_var)
+        bed_cb.pack(anchor="w")
+        ttk.Label(bed_frame, text="the intimacy bed under everything",
+                  font=("Consolas", 8), foreground="#8d7499").pack(anchor="w")
 
         # API key section
         self.key_frame = ttk.Frame(main)
@@ -165,6 +180,7 @@ class Launcher(tk.Tk):
             "bird_voice_id": self.bird_var.get().strip(),
             "fiend_voice_id": self.fiend_var.get().strip(),
             "input_offset_ms": self._parse_offset(),
+            "bed_sounds": bool(self.bed_var.get()),
         }
         if mode == "elevenlabs" and not cfg["elevenlabs_api_key"]:
             messagebox.showwarning("bratbox",
@@ -206,6 +222,9 @@ def launch_game(cfg: dict):
     if cfg["fiend_voice_id"]:
         env["ELEVENLABS_VOICE_ID_FIEND"] = cfg["fiend_voice_id"]
     env["BRATBOX_INPUT_OFFSET_MS"] = str(cfg.get("input_offset_ms", 0))
+    # Intimacy bed loop toggle (launcher checkbox). The director and the
+    # offline operator both honor it; off = the bed never starts.
+    env["BRATBOX_BED_LOOP"] = "1" if cfg.get("bed_sounds", True) else "0"
     # Point the voice cache at appdata so it's user-local, not bundled
     env["LOCKKEY_VOICE_CACHE_DIR"] = str(config_dir() / "voice_cache")
 
@@ -254,7 +273,9 @@ def launch_game(cfg: dict):
 
     director = _spawn("--run-director", str(session))
     writer = None
-    if cfg["voice_mode"] in ("elevenlabs", "cache"):
+    # piper mode renders live via the local tts CLI (crowned voices) with
+    # the pre-rendered deck as fallback — no ElevenLabs key involved.
+    if cfg["voice_mode"] in ("elevenlabs", "cache", "piper"):
         writer_env = dict(env)
         if cfg["voice_mode"] == "cache":
             writer_env["LOCKKEY_OFFLINE"] = "1"

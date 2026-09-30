@@ -19,6 +19,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -79,6 +80,12 @@ class Operator:
                   "(set JASMINE_AUDIO_PLAYER)", flush=True)
         self.n_voiced = 0
         self.n_missing = 0
+        # intimacy bed loop state (daemon thread restarts the player
+        # while clips/bed_*.mp3 is present; file gone = loop stops)
+        self._bed_thread = None
+        self._bed_path = None
+        self._bed_stop_ev = None
+        self._bed_proc = None
 
     def _clip_for(self, speaker: str, text: str):
         sp = (speaker or "").upper()
@@ -148,6 +155,98 @@ class Operator:
                 continue
             self._play(f)
 
+    def _bed_stop_thread(self):
+        ev, th, pr = self._bed_stop_ev, self._bed_thread, self._bed_proc
+        self._bed_stop_ev, self._bed_thread, self._bed_proc = None, None, None
+        try:
+            if ev is not None:
+                ev.set()
+        except Exception:
+            pass
+        try:
+            if pr is not None and pr.poll() is None:
+                pr.terminate()
+        except Exception:
+            pass
+        try:
+            if th is not None and th.is_alive():
+                th.join(timeout=2.0)
+        except Exception:
+            pass
+
+    def _bed_loop(self):
+        # daemon: keep the bed playing until the stop event fires or the
+        # file disappears (director pulls it at bed stop).
+        stop_ev = self._bed_stop_ev
+        path = self._bed_path
+        player = self.player
+        while stop_ev is not None and not stop_ev.is_set():
+            try:
+                if not path.is_file():
+                    break
+            except Exception:
+                break
+            try:
+                p = subprocess.Popen(
+                    player + [str(path)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL, start_new_session=True)
+                self._bed_proc = p
+                while p.poll() is None and not stop_ev.is_set():
+                    stop_ev.wait(0.25)
+                if stop_ev.is_set():
+                    try:
+                        if p.poll() is None:
+                            p.terminate()
+                    except Exception:
+                        pass
+                    break
+            except Exception:
+                stop_ev.wait(2.0)
+                continue
+        self._bed_proc = None
+
+    def _pump_bed(self):
+        # intimacy bed: clips/bed_*.mp3 present = loop it under everything.
+        # Honors the launcher bed-loop toggle: off = never start, and stop
+        # anything already playing (e.g. stale file from an older session).
+        bed_allowed = (os.environ.get("BRATBOX_BED_LOOP", "1").strip().lower()
+                       not in ("0", "false", "no", "off"))
+        if not bed_allowed:
+            if self._bed_thread is not None and self._bed_thread.is_alive():
+                self._bed_stop_thread()
+                self._bed_path = None
+                print("tts operator: intimacy bed off (toggle)", flush=True)
+            return
+        if not self.player or self.player[0] == "powershell":
+            return
+        try:
+            beds = sorted(self.clips.glob("bed_*.mp3"))
+        except Exception:
+            beds = []
+        want = None
+        if beds:
+            # only fresh drops (avoid looping a crashed session's tail)
+            try:
+                if time.time() - beds[0].stat().st_mtime <= 120:
+                    want = beds[0]
+            except Exception:
+                want = None
+        alive = (self._bed_thread is not None
+                 and self._bed_thread.is_alive())
+        if want is not None and (not alive or self._bed_path != want):
+            self._bed_stop_thread()
+            self._bed_path = want
+            self._bed_stop_ev = threading.Event()
+            self._bed_thread = threading.Thread(target=self._bed_loop,
+                                                daemon=True)
+            self._bed_thread.start()
+            print(f"tts operator: intimacy bed on ({want.name})", flush=True)
+        elif want is None and alive:
+            self._bed_stop_thread()
+            self._bed_path = None
+            print("tts operator: intimacy bed off", flush=True)
+
     def answer(self, beat: dict):
         seq = int(beat["seq"])
         tag = f"{seq:06d}"
@@ -181,8 +280,10 @@ class Operator:
         while True:
             if time.time() - self.start > MAX_RUNTIME_S:
                 print("tts operator: max runtime, exiting", flush=True)
+                self._bed_stop_thread()
                 return
             self._pump_sfx()
+            self._pump_bed()
             beats = sorted(self.inbox.glob("beat_*.json"))
             if not beats:
                 st = self.session / "director_stats.json"
@@ -194,6 +295,7 @@ class Operator:
                     if stale_s > 30 and time.time() - idle_since > 15:
                         print("tts operator: session over, exiting",
                               flush=True)
+                        self._bed_stop_thread()
                         return
                 else:
                     idle_since = time.time()

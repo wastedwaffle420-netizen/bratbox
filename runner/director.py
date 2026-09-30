@@ -38,6 +38,15 @@ def _on_sig(signum, frame):
     running = False
 
 
+# Intimacy bed loop toggle (launcher checkbox -> BRATBOX_BED_LOOP).
+# Off = the bed never starts, in any flow: the director is the single
+# producer of bed events (clips/bed_intimacy.mp3 + manifest kind:"bed"),
+# so gating here silences the browser, the offline operator, and the
+# native writer paths all at once.
+_BED_LOOP_ENABLED = (os.environ.get("BRATBOX_BED_LOOP", "1").strip().lower()
+                     not in ("0", "false", "no", "off"))
+
+
 signal.signal(signal.SIGINT, _on_sig)
 signal.signal(signal.SIGTERM, _on_sig)
 
@@ -80,6 +89,9 @@ def _sfx_library() -> Path:
 
 
 _TOOT_SFX = {
+    "cute": ("toot/cute", (
+        "mature_toot.mp3",
+    )),
     "power": ("toot/power", (
         "4._Gross_weighted_ba__2-1779910860583.mp3",
         "4._Gross_weighted_ba__4-1779910870476.mp3",
@@ -104,8 +116,8 @@ import random as _random
 def _handle_toot(beat: dict, clips: Path, manifest, logf, idx: int) -> None:
     """Copy her flavor's toot take into the session clips and queue it in the
     manifest so the browser plays it. Same pump as her voice lines."""
-    flavor = str(beat.get("flavor") or "bashful").lower()
-    sub, names = _TOOT_SFX.get(flavor, _TOOT_SFX["bashful"])
+    flavor = str(beat.get("flavor") or "cute").lower()
+    sub, names = _TOOT_SFX.get(flavor, _TOOT_SFX["cute"])
     lib = _sfx_library()
     takes = [p for p in (lib / sub / n for n in names) if p.is_file()]
     if not takes:
@@ -156,6 +168,67 @@ def _handle_sfx(name: str, clips: Path, manifest, logf, idx: int) -> bool:
     return True
 
 
+# Intimacy layer (ultimate-bratbox sensory wiring).
+# Explicit assets live user-local under assets/audio/jasmine/intimacy/
+# (gitignored — never committed to the public repo). The bed loops under
+# everything once he's in intimate territory; the BJ arc fires once at
+# climax. Both degrade to silence when the files are absent.
+def _intimacy_dir() -> Path:
+    return _sfx_library() / "intimacy"
+
+
+def _bed_start(clips: Path, manifest, logf, idx: int) -> bool:
+    """Drop the intimacy bed into the session and announce the loop."""
+    src = _intimacy_dir() / "intimacy_bed.mp3"
+    if not src.is_file():
+        logj(logf, event="intimacy_bed_missing")
+        return False
+    dest = clips / "bed_intimacy.mp3"
+    try:
+        if not dest.is_file():
+            dest.write_bytes(src.read_bytes())
+    except Exception as e:
+        logj(logf, event="bed_copy_error", error=str(e)[:120])
+        return False
+    manifest.write(json.dumps({"idx": idx, "kind": "bed", "action": "start",
+                               "clip": dest.name,
+                               "t": round(time.time(), 3)}) + "\n")
+    manifest.flush()
+    logj(logf, event="bed_start", clip=dest.name)
+    return True
+
+
+def _bed_stop(clips: Path, manifest, logf, idx: int) -> None:
+    """Announce the end of the bed loop and pull the file."""
+    manifest.write(json.dumps({"idx": idx, "kind": "bed", "action": "stop",
+                               "t": round(time.time(), 3)}) + "\n")
+    manifest.flush()
+    try:
+        (clips / "bed_intimacy.mp3").unlink(missing_ok=True)
+    except Exception:
+        pass
+    logj(logf, event="bed_stop")
+
+
+def _handle_bjarc(clips: Path, manifest, logf, idx: int) -> bool:
+    """Fire the BJ arc once, over the bed. The climax trigger."""
+    src = _intimacy_dir() / "bj_arc.mp3"
+    if not src.is_file():
+        logj(logf, event="bjarc_missing")
+        return False
+    dest = clips / f"sfx_bjarc_{idx}.mp3"
+    try:
+        dest.write_bytes(src.read_bytes())
+    except Exception as e:
+        logj(logf, event="bjarc_copy_error", error=str(e)[:120])
+        return False
+    manifest.write(json.dumps({"idx": idx, "kind": "sfx", "clip": dest.name,
+                               "t": round(time.time(), 3)}) + "\n")
+    manifest.flush()
+    logj(logf, event="bjarc", clip=dest.name)
+    return True
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", required=True)
@@ -169,6 +242,11 @@ def main() -> int:
     clips = sess / "clips"
     for d in (fifo_d, inbox, outbox, clips):
         d.mkdir(parents=True, exist_ok=True)
+    # never loop a crashed session's bed tail: fresh session, no bed
+    try:
+        (clips / "bed_intimacy.mp3").unlink(missing_ok=True)
+    except Exception:
+        pass
 
     WIN32 = os.name == "nt"
     if WIN32:
@@ -188,6 +266,8 @@ def main() -> int:
     logf = open(sess / "director.log", "a", buffering=1)
     manifest = open(clips / "manifest.jsonl", "a", buffering=1)
     manifest_idx = sum(1 for _ in open(clips / "manifest.jsonl")) if (clips / "manifest.jsonl").exists() else 0
+    logj(logf, event="director_start",
+         bed_loop="on" if _BED_LOOP_ENABLED else "off (BRATBOX_BED_LOOP=0)")
 
     # O_RDWR on both ends: open never blocks, read never sees EOF.
     # (Windows: JSONL files instead, see WIN32 above.)
@@ -264,6 +344,10 @@ def main() -> int:
     finale_active = False
     finale_start_t = 0.0
     finale_route = "vaginal"
+    # intimacy bed state machine (ultimate-bratbox sensory layer)
+    bed_on = False
+    bed_cool_since = 0.0
+    bed_dead = False  # asset missing; don't retry this session
     best_combo = 0
 
 
@@ -416,6 +500,14 @@ def main() -> int:
                             logj(logf, event="finale_tx_fail", seq=seq, err=str(e))
                         logj(logf, event="finale_start", seq=seq,
                              arousal=snap.get("arousal"), route=finale_route)
+                        # climax trigger: the BJ arc fires once, over the bed.
+                        try:
+                            if _handle_bjarc(clips, manifest, logf,
+                                             manifest_idx):
+                                manifest_idx += 1
+                        except Exception as e:
+                            logj(logf, event="bjarc_error",
+                                 error=str(e)[:120])
                     elif finale_active:
                         beat["finale"] = {"active": True, "route": finale_route}
                         # exit: he's gone quiet (done), 5-min cap, or safeword
@@ -442,6 +534,30 @@ def main() -> int:
                             except Exception:
                                 pass
                             logj(logf, event="finale_end", seq=seq, reason=reason)
+                    # intimacy bed: the default loop. Starts once he's in
+                    # intimate territory (warming+), stops after 60s back
+                    # at cool. Missing asset degrades to silence, logged once.
+                    try:
+                        st = str(snap.get("state") or "cool")
+                        if st in ("warming", "close", "peak"):
+                            bed_cool_since = 0.0
+                            if not bed_on and not bed_dead and _BED_LOOP_ENABLED:
+                                if _bed_start(clips, manifest, logf,
+                                              manifest_idx):
+                                    bed_on = True
+                                    manifest_idx += 1
+                                else:
+                                    bed_dead = True
+                        elif bed_on:
+                            if not bed_cool_since:
+                                bed_cool_since = time.time()
+                            elif time.time() - bed_cool_since > 60.0:
+                                _bed_stop(clips, manifest, logf, manifest_idx)
+                                manifest_idx += 1
+                                bed_on = False
+                                bed_cool_since = 0.0
+                    except Exception as e:
+                        logj(logf, event="bed_error", error=str(e)[:120])
                 except Exception:
                     pass
             try:

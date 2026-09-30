@@ -6,7 +6,7 @@
 # What it does:
 #   - rhythm-only, max difficulty, elastic-grotesque bed
 #   - the game's own birdsong dialogue, verbatim (never rewritten)
-#   - every line voiced locally: glossy pendant (her), mild yarn (him)
+#   - every line voiced locally: glossy pendant (her), Sparkling Bracelet (him)
 #   - sweat / musk / urine on
 #   - no browser, no tunnel, no ElevenLabs, no network at all
 #
@@ -55,7 +55,7 @@ fi
 
 echo "session: $SESSION"
 echo "mode: rhythm-only / intensity=$LOCKKEY_INTENSITY / bed=$LOCKKEY_OGRE_EXPERIENCE_MODE"
-echo "voice: glossy pendant (her) + mild yarn (him), offline deck"
+echo "voice: glossy pendant (her) + Sparkling Bracelet (him), offline deck"
 
 "$PY" "$RUNNER_DIR/director.py" --session "$SESSION" \
   > "$SESSION/director_stdout.log" 2>&1 &
